@@ -11,53 +11,50 @@ description: "A guide on how to use Docker Swarm with Coolify."
 
 ## Setup in Coolify
 
-If you would like to use a Swarm to deploy your resources, you need to add the `Swarm Manager` to Coolify.
+If you want to deploy resources to a Docker Swarm, you must:
 
-Optionally, you can add the `Swarm Workers` to Coolify. This will allow Coolify to do cleanups and other stuff on the `Swarm Workers`.
+1. **Add the Swarm Manager** to Coolify.  
+2. *(Optional)* **Add Swarm Workers** to Coolify – this lets Coolify perform clean-ups and other maintenance tasks on those nodes.
 
 ### Docker Registry
 
-You need to have an external Docker Registry available to use a Swarm, as all workers need to be able to pull the images you built with Coolify.
+A **registry external to the Swarm** is required so that every worker can pull the images Coolify builds.
 
-- The Swarm Manager needs to push the image to the Docker Registry.
-- The Swarm Workers need to pull the image from the Docker Registry.
+- The Swarm Manager **pushes** the image to the registry.  
+- The Swarm Workers **pull** the image from the registry.
 
-So set your docker login credentials accordingly. More information [here](/knowledge-base/docker/registry).
+Configure your Docker credentials accordingly. More details [here](/knowledge-base/docker/registry).
 
-## Install Swarm Cluster
+---
 
-> WIP
-> This is just a brief guide to install a simple Docker Swarm cluster. For more information, please refer to the [official documentation](https://docs.docker.com/engine/swarm/).
+## Install a Swarm Cluster (quick guide)
 
-### Prerequisites
+> **WIP** – For comprehensive instructions, see the  
+> [Docker Swarm documentation](https://docs.docker.com/engine/swarm/).
 
-- I will use [Hetzner](https://coolify.io/hetzner) (referral link) for this guide. You can use any other provider.
-- You need at least 3 servers to create a Docker Swarm cluster with the same architecture (ARM or AMD64).
-- 1 server for the manager node.
-- 2 servers for the worker nodes (you can add more worker nodes if you want).
-- Add private networking to all servers if possible.
+### 1  Prerequisites
 
-### Install Docker
+- Example provider: [Hetzner](https://coolify.io/hetzner) (referral link) – any provider works.  
+- **Three or more servers** with the **same architecture** (ARM or AMD64):  
+  - **1 manager node**  
+  - **2 worker nodes** (add more if needed)  
+- Enable **private networking** on every server if possible.
 
-Install Docker on all servers. You can follow the [official documentation](https://docs.docker.com/engine/install/) or:
+### 2  Install Docker on every server
 
-1. Install with Rancher script
+Follow the [official install guide](https://docs.docker.com/engine/install/) or run **one** of the scripts below:
 
 ```bash
+# Option A – Rancher script
 curl https://releases.rancher.com/install-docker/24.0.sh | sh
+
+# Option B – Docker's official script
+curl -fsSL https://get.docker.com | sh -s -- --version 24.0
 ```
 
-2. Install with Docker script
+### 3  Enable and configure the Docker daemon
 
-```bash
-curl https://get.docker.com | sh -s -- --version 24.0
-```
-
-> You only need to use one of the above commands.
-
-### Configure Docker
-
-On `all servers`, run the following command to start Docker.
+Start Docker and enable it to start on boot:
 
 ```bash
 systemctl start docker
@@ -65,67 +62,62 @@ systemctl enable docker
 ```
 
 ::: warning Caution
-Hetzner specific configuration. Hetnzer servers use a MTU of 1450. You need to configure Docker to use the same MTU.
-
-On the `manager`, run the following command to configure Docker.
+**Hetzner-specific MTU fix**  
+Hetzner uses MTU 1450. Set Docker’s MTU on **all nodes**:
 
 ```bash
 mkdir -p /etc/docker
 cat <<EOF > /etc/docker/daemon.json
 {
-  "default-network-opts": {
-    "overlay": {
-      "com.docker.network.driver.mtu": "1450"
-    }
-  }
+  "mtu": 1450
 }
 EOF
+
 systemctl restart docker
 ```
 :::
 
-
-### Create a Swarm cluster
-
-`On the manager node`, run the following command to create a new cluster.
+### 4  Create the Swarm (manager node)
 
 ```bash
-# MANAGER_IP = IP of the manager node. If you have private networking, use the private IP, like 10.0.0.x.
+# Replace <MANAGER_IP> with the manager’s private IP (e.g. 10.0.0.2)
 docker swarm init --advertise-addr <MANAGER_IP>
-
 ```
 
-This command will output a command to join the cluster on the `worker nodes`.
-
-It should look like something like this:
+Docker prints a **join command**. Example (do **not** copy verbatim):
 
 ```bash
-# DO NOT RUN THIS COMMAND, IT IS JUST AN EXAMPLE, HELLO!
-docker swarm join --token SWMTKN-1-24zvxeydjarchy7z68mdawichvf684qvf8zalx3rmwfgi6pzm3-4ftqn9n8v98kx3phfqjimtkzx 10.0.0.2:2377
+docker swarm join --token SWMTKN-1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 10.0.0.2:2377
 ```
 
-### Verify the cluster
+### 5  Join worker nodes
 
-Run the following command on the manager node to verify the cluster.
+Run the printed `docker swarm join ...` command on **each worker node**.
+
+### 6  Verify the cluster (manager node)
 
 ```bash
 docker node ls
 ```
 
-You should see something like this:
+Example output:
 
 ```bash
-ID                            HOSTNAME        STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
-ua38ijktbid70em257ymxufif *   swarm-manager   Ready     Active         Leader           24.0.2
-7rss9rvaqpe9fddt5ol1xucmu     swarm-worker    Ready     Active                          24.0.2
-12239rvaqp43gddtgfsdxucm2     swarm-worker    Ready     Active                          24.0.2
-
+ID                            HOSTNAME          STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+ua38ijktbid70em257ymxufif *   swarm-manager     Ready     Active         Leader           24.0.2
+7rss9rvaqpe9fddt5ol1xucmu     swarm-worker-1    Ready     Active                          24.0.2
+12239rvaqp43gddtgfsdxucm2     swarm-worker-2    Ready     Active                          24.0.2
 ```
 
-## Deploy with persistent storage
+---
 
-To be able to deploy a service with persistent storage, you need to have a shared volume on the `swarm-workers`. So the Swarm service could move the resources between the `swarm-workers`.
+## Deploying services with persistent storage
 
-You can always use services like AWS EFS, NFS, GlusterFS, etc.
+Swarm can reschedule a service onto any worker. To avoid data loss you need **shared storage** accessible from **every worker**:
 
-> WIP
+- **AWS EFS**  
+- **NFS** server  
+- **GlusterFS** cluster  
+- Any other storage solution supported by Docker volumes
+
+> **WIP** – A detailed volume-setup guide is in progress.
